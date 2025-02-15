@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: edelweiss
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  auth:
+    build:
+      context: .
+      dockerfile: ./api/v1/auth/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      - db
+      - rabbitmq
+
+  wallet:
+    build:
+      context: .
+      dockerfile: ./api/v1/wallet/Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      - db
+      - auth
+      - rabbitmq
+volumes:
+  postgres_data:
