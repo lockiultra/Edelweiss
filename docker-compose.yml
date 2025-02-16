@@ -43,5 +43,17 @@ services:
       - db
       - auth
       - rabbitmq
+
+  blockchain:
+    build:
+      context: .
+      dockerfile: ./api/v1/blockchain/Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      - rabbitmq
+      - wallet
 volumes:
   postgres_data:

@@ -11,6 +11,7 @@ from api.v1.wallet.schemas import WalletCreate, CurrencyEnum, WalletDeposit, Wal
 from api.v1.wallet.models import Wallet
 from api.v1.wallet.dependencies import get_current_user
 from api.v1.wallet.rabbitmq_consumer import start_consumer
+from api.v1.wallet.rabbitmq_blockchain_publisher import blockchain_publisher_instance
 
 
 @asynccontextmanager
@@ -18,12 +19,14 @@ async def lifespan(app: FastAPI): # noqa
     time.sleep(40)
     await init_db()
     consumer_task = asyncio.create_task(start_consumer())
+    await blockchain_publisher_instance.connect()
     try:
         yield
     except Exception as e:
         print(e)
     finally:
         consumer_task.cancel()
+        await blockchain_publisher_instance.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -52,13 +55,23 @@ async def get_wallets_by_user_id(db: AsyncSession = Depends(get_db), user_id: in
 
 @app.post('/wallets/deposit')
 async def deposit_to_wallet(deposit: WalletDeposit = Depends(), db: AsyncSession = Depends(get_db)):
-    wallet = await db.execute(select(Wallet).where(Wallet.user_id == deposit.user_id and Wallet.currency == deposit.currency))
+    wallet = await db.execute(select(Wallet).where((Wallet.user_id == deposit.user_id) & (Wallet.currency == deposit.currency)))
     wallet = wallet.scalars().first()
     if not wallet:
         return {'message': 'Wallet not found'}
     wallet.balance += deposit.amount
     await db.commit()
     await db.refresh(wallet)
+
+    if deposit.currency == CurrencyEnum.ALPENGLOW:
+        transaction_data = {
+            "sender": str(deposit.user_id),
+            "receiver": str(deposit.user_id),
+            "amount": deposit.amount,
+            "currency": deposit.currency.value
+        }
+        await blockchain_publisher_instance.publish(transaction_data)
+
     return {'message': 'Wallet updated'}
 
 
@@ -73,6 +86,16 @@ async def withdraw_from_wallet(withdraw: WalletWithdraw = Depends(), db: AsyncSe
     wallet.balance -= withdraw.amount
     await db.commit()
     await db.refresh(wallet)
+
+    if withdraw.currency == CurrencyEnum.ALPENGLOW:
+        transaction_data = {
+            "sender": str(withdraw.user_id),
+            "receiver": withdraw.address,
+            "amount": withdraw.amount,
+            "currency": withdraw.currency.value
+        }
+        await blockchain_publisher_instance.publish(transaction_data)
+
     return {'message': 'Wallet updated'}
 
 
@@ -95,4 +118,14 @@ async def transfer_to_wallet(transfer: WalletTransfer = Depends(), db: AsyncSess
     await db.commit()
     await db.refresh(sender_wallet)
     await db.refresh(receiver_wallet)
+
+    if transfer.currency == CurrencyEnum.ALPENGLOW:
+        transaction_data = {
+            "sender": str(transfer.sender_id),
+            "receiver": str(transfer.receiver_id),
+            "amount": transfer.amount,
+            "currency": transfer.currency.value
+        }
+        await blockchain_publisher_instance.publish(transaction_data)
+
     return {'message': 'Transfer completed'}
