@@ -55,5 +55,16 @@ services:
     depends_on:
       - rabbitmq
       - wallet
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80" #host:container, access frontend at http://localhost:3000
+    depends_on:
+      - auth
+      - wallet
+      - blockchain
 volumes:
   postgres_data:
